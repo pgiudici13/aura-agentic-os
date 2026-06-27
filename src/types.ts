@@ -23,9 +23,16 @@ export interface Task {
 
 export interface TripDay {
   id: string
+  date: string
   time: string
   title: string
   detail: string
+}
+
+export interface TripRoutine {
+  id: string
+  time: string
+  title: string
 }
 
 export interface Trip {
@@ -36,6 +43,8 @@ export interface Trip {
   endDate: string
   status: 'idea' | 'planning' | 'booked'
   accent: string
+  accommodation: string
+  dailyRoutine: TripRoutine[]
   itinerary: TripDay[]
   packing: Array<{ id: string; label: string; packed: boolean }>
 }
@@ -51,7 +60,7 @@ export interface Profile {
 }
 
 export interface AuraData {
-  version: 1
+  version: 2
   profile: Profile
   notes: Note[]
   tasks: Task[]

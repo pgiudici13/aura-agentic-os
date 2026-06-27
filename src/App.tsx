@@ -14,6 +14,7 @@ const NAV_ITEMS: Array<{ id: ViewId; label: string; icon: IconName }> = [
 
 const dateFormatter = new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })
 const shortDateFormatter = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' })
+const itineraryDateFormatter = new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })
 
 const formatDate = (date: string) => shortDateFormatter.format(new Date(`${date}T12:00:00`))
 
@@ -23,6 +24,9 @@ const daysUntil = (date: string) => {
   const target = new Date(`${date}T00:00:00`)
   return Math.ceil((target.getTime() - today.getTime()) / 86_400_000)
 }
+
+const dayWord = (days: number) => days === 1 ? 'giorno' : 'giorni'
+const tripStatusLabel = (status: Trip['status']) => status === 'booked' ? 'Prenotato' : status === 'planning' ? 'In pianificazione' : 'Un’idea'
 
 const greeting = () => {
   const hour = new Date().getHours()
@@ -201,7 +205,7 @@ function Dashboard({ data, updateData, goTo }: ViewProps & { goTo: (view: ViewId
             <p>{openTasks.length === 0
               ? 'Tutto libero. È un buon momento per pianificare qualcosa che conta.'
               : `Hai ${openTasks.length} ${openTasks.length === 1 ? 'attività aperta' : 'attività aperte'}${highPriority.length ? `, di cui ${highPriority.length} ad alta priorità` : ''}. Procedi una cosa alla volta.`}</p>
-            {upcomingTrip && <p>Il viaggio a <strong>{upcomingTrip.destination}</strong> è tra {daysUntil(upcomingTrip.startDate)} giorni. La checklist è al {Math.round((upcomingTrip.packing.filter((item) => item.packed).length / Math.max(upcomingTrip.packing.length, 1)) * 100)}%.</p>}
+            {upcomingTrip && <p>Il viaggio a <strong>{upcomingTrip.destination}</strong> è tra {daysUntil(upcomingTrip.startDate)} {dayWord(daysUntil(upcomingTrip.startDate))}. La checklist è al {Math.round((upcomingTrip.packing.filter((item) => item.packed).length / Math.max(upcomingTrip.packing.length, 1)) * 100)}%.</p>}
           </div>
           <button className="agent-link" onClick={() => goTo(upcomingTrip ? 'travel' : 'tasks')}>Apri il prossimo passo <Icon name="chevron" /></button>
         </article>
@@ -222,7 +226,7 @@ function Dashboard({ data, updateData, goTo }: ViewProps & { goTo: (view: ViewId
           <span className="metric-icon peach"><Icon name="note" /></span><div><strong>{data.notes.length}</strong><p>note nel tuo spazio</p></div><Icon name="chevron" className="metric-arrow" />
         </button>
         <button className="metric-card" onClick={() => goTo('travel')}>
-          <span className="metric-icon blue"><Icon name="plane" /></span><div><strong>{upcomingTrip ? daysUntil(upcomingTrip.startDate) : '—'}</strong><p>{upcomingTrip ? `giorni a ${upcomingTrip.destination}` : 'nessun viaggio'}</p></div><Icon name="chevron" className="metric-arrow" />
+          <span className="metric-icon blue"><Icon name="plane" /></span><div><strong>{upcomingTrip ? daysUntil(upcomingTrip.startDate) : '—'}</strong><p>{upcomingTrip ? `${dayWord(daysUntil(upcomingTrip.startDate))} a ${upcomingTrip.destination}` : 'nessun viaggio'}</p></div><Icon name="chevron" className="metric-arrow" />
         </button>
       </section>
 
@@ -241,7 +245,7 @@ function Dashboard({ data, updateData, goTo }: ViewProps & { goTo: (view: ViewId
             <div className="trip-visual" style={{ '--trip-accent': upcomingTrip.accent } as CSSProperties}>
               <div className="sun-disc"/><div className="horizon horizon-one"/><div className="horizon horizon-two"/><span>{upcomingTrip.country}</span>
             </div>
-            <div className="trip-meta"><span><Icon name="calendar" />{formatDate(upcomingTrip.startDate)} — {formatDate(upcomingTrip.endDate)}</span><span className="soft-badge">In pianificazione</span></div>
+            <div className="trip-meta"><span><Icon name="calendar" />{formatDate(upcomingTrip.startDate)} — {formatDate(upcomingTrip.endDate)}</span><span className="soft-badge">{tripStatusLabel(upcomingTrip.status)}</span></div>
           </> : <EmptyState icon="plane" title="Nessuna partenza" text="Crea un viaggio per organizzare itinerario e valigia." />}
         </div>
       </section>
@@ -330,11 +334,17 @@ function TravelView({ data, updateData }: ViewProps) {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState({ destination: '', country: '', startDate: '', endDate: '' })
   const trip = data.trips.find((item) => item.id === selectedId) ?? data.trips[0]
+  const itineraryGroups = useMemo(() => {
+    if (!trip) return []
+    const groups = new Map<string, typeof trip.itinerary>()
+    trip.itinerary.forEach((step) => groups.set(step.date, [...(groups.get(step.date) ?? []), step]))
+    return Array.from(groups, ([date, steps], index) => ({ date, steps, dayNumber: index + 1 }))
+  }, [trip])
 
   const addTrip = (event: FormEvent) => {
     event.preventDefault()
     if (!draft.destination || !draft.startDate || !draft.endDate) return
-    const newTrip: Trip = { id: crypto.randomUUID(), ...draft, status: 'planning', accent: '#4d7d72', itinerary: [], packing: [] }
+    const newTrip: Trip = { id: crypto.randomUUID(), ...draft, status: 'planning', accent: '#4d7d72', accommodation: '', dailyRoutine: [], itinerary: [], packing: [] }
     updateData((current) => ({ ...current, trips: [newTrip, ...current.trips] }), 'Viaggio creato')
     setSelectedId(newTrip.id); setDraft({ destination: '', country: '', startDate: '', endDate: '' }); setAdding(false)
   }
@@ -355,10 +365,12 @@ function TravelView({ data, updateData }: ViewProps) {
     <div className="trip-selector">{data.trips.map((item) => <button key={item.id} onClick={() => setSelectedId(item.id)} className={trip?.id === item.id ? 'active' : ''}><span className="trip-color" style={{ background: item.accent }} /><span><strong>{item.destination}</strong><small>{formatDate(item.startDate)} — {formatDate(item.endDate)}</small></span></button>)}</div>
     {trip ? <div className="travel-layout">
       <section className="travel-hero" style={{ '--trip-accent': trip.accent } as CSSProperties}>
-        <div><span className="soft-badge light-badge">{trip.status === 'booked' ? 'Prenotato' : trip.status === 'planning' ? 'In pianificazione' : 'Un’idea'}</span><h2>{trip.destination}</h2><p>{trip.country}</p><div className="travel-dates"><span><Icon name="calendar" />{formatDate(trip.startDate)} — {formatDate(trip.endDate)}</span><span><Icon name="clock" />{Math.max(daysUntil(trip.startDate), 0)} giorni alla partenza</span></div></div>
+        <div><span className="soft-badge light-badge">{tripStatusLabel(trip.status)}</span><h2>{trip.destination}</h2><p>{trip.country}</p><div className="travel-dates"><span><Icon name="calendar" />{formatDate(trip.startDate)} — {formatDate(trip.endDate)}</span><span><Icon name="clock" />{Math.max(daysUntil(trip.startDate), 0)} {dayWord(Math.max(daysUntil(trip.startDate), 0))} alla partenza</span></div></div>
         <div className="travel-art"><div className="travel-sun"/><div className="travel-hill a"/><div className="travel-hill b"/></div>
       </section>
-      <section className="panel itinerary-panel"><div className="panel-header"><div><p className="section-kicker">Programma</p><h2>Itinerario</h2></div><span>{trip.itinerary.length} tappe</span></div><div className="timeline">{trip.itinerary.map((step) => <div className="timeline-item" key={step.id}><time>{step.time}</time><span className="timeline-dot"/><div><strong>{step.title}</strong><p>{step.detail}</p></div></div>)}{trip.itinerary.length === 0 && <EmptyState icon="map" title="Itinerario vuoto" text="Le tappe del viaggio compariranno qui." />}</div></section>
+      {trip.accommodation && <div className="stay-strip"><span><Icon name="briefcase" /></span><div><small>Dove soggiorni</small><strong>{trip.accommodation}</strong></div><em>Base del viaggio</em></div>}
+      <section className="panel itinerary-panel"><div className="panel-header"><div><p className="section-kicker">Programma completo</p><h2>Giorno per giorno</h2></div><span>{itineraryGroups.length} giorni · {trip.itinerary.length} tappe</span></div><div className="timeline">{itineraryGroups.map((group) => <section className="timeline-day" key={group.date}><header className="timeline-day-header"><span>Giorno {group.dayNumber}</span><strong>{itineraryDateFormatter.format(new Date(`${group.date}T12:00:00`))}</strong></header>{group.steps.map((step) => <div className="timeline-item" key={step.id}><time>{step.time}</time><span className="timeline-dot"/><div><strong>{step.title}</strong><p>{step.detail}</p></div></div>)}</section>)}{trip.itinerary.length === 0 && <EmptyState icon="map" title="Itinerario vuoto" text="Le tappe del viaggio compariranno qui." />}</div></section>
+      {trip.dailyRoutine.length > 0 && <section className="panel routine-panel"><div className="panel-header"><div><p className="section-kicker">Organizzazione</p><h2>Giornata tipo</h2></div><span>Orari indicativi</span></div><div className="routine-list">{trip.dailyRoutine.map((item) => <div key={item.id}><time>{item.time}</time><span>{item.title}</span></div>)}</div></section>}
       <section className="panel packing-panel"><div className="panel-header"><div><p className="section-kicker">Checklist</p><h2>Valigia</h2></div><button className="icon-button bordered" onClick={addPacking} aria-label="Aggiungi elemento"><Icon name="plus" /></button></div><div className="packing-progress"><span style={{ width: `${Math.round((trip.packing.filter((item) => item.packed).length / Math.max(trip.packing.length, 1)) * 100)}%` }} /></div><div className="packing-list">{trip.packing.map((item) => <label key={item.id}><input type="checkbox" checked={item.packed} onChange={() => togglePacked(item.id)} /><span>{item.label}</span></label>)}</div></section>
     </div> : <div className="large-empty"><EmptyState icon="plane" title="Il prossimo viaggio inizia qui" text="Aggiungi una destinazione e costruisci il tuo piano." /></div>}
   </div>
